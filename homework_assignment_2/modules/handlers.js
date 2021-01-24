@@ -310,6 +310,13 @@ handlers._tokens.verifyToken = function (id, email, callback) {
       if (tokenData.email == email && tokenData.expires > Date.now()) {
         callback(true);
       } else {
+        if (tokenData.email == email && tokenData.expires < Date.now()) {
+          _data.delete('tokens', id, function (err) {
+            if (err) {
+              console.log('\x1b[31m%s\x1b[0m', err);
+            }
+          })
+        };
         callback(false);
       }
     } else {
@@ -320,5 +327,263 @@ handlers._tokens.verifyToken = function (id, email, callback) {
 
 };
 // Tokens end
+
+// Menu
+handlers.menu = function (data, callback) {
+
+  var acceptableMethods = ['get'];
+  if (acceptableMethods.indexOf(data.method) > -1) {
+    handlers._menu[data.method](data, callback);
+  } else {
+    callback(405);
+  }
+
+}
+
+handlers._menu = {};
+
+handlers._menu.get = function (data, callback) {
+  var email = typeof (data.queryStringObject.email) == 'string' && emailRegex.test(data.queryStringObject.email.trim()) ? data.queryStringObject.email.trim() : false;
+
+  if (email) {
+
+    var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+    handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+      if (tokenIsValid) {
+        _data.read('.', 'menu', function (err, fileContent) {
+          if (!err && fileContent) {
+            callback(200, fileContent);
+          } else {
+            callback(400);
+          }
+        });
+
+      } else {
+        callback(403, { "Error": "Missing required token in header, or token is invalid." });
+      }
+    });
+
+  } else {
+    callback(400, { 'Error': 'Missing required field' });
+  }
+};
+// Menu end
+
+// Cart
+handlers.cart = function (data, callback) {
+
+  var acceptableMethods = ['post', 'get', 'put', 'delete'];
+  if (acceptableMethods.indexOf(data.method) > -1) {
+    handlers._cart[data.method](data, callback);
+  } else {
+    callback(405);
+  }
+
+};
+
+handlers._cart = {};
+
+handlers._cart.post = function (data, callback) {
+
+  var email = typeof (data.payload.email) == 'string' && emailRegex.test(data.payload.email.trim()) ? data.payload.email.trim() : false;
+
+  if (email) {
+
+    var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+    handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+      if (tokenIsValid) {
+        _data.read('cart', email, function (err, _) {
+          if (err) {
+            var cartObject = {
+              email,
+              "itens": [],
+              "total": 0
+            };
+
+            _data.create('cart', email, cartObject, function (err) {
+              if (!err) {
+                callback(200);
+              } else {
+                callback(500, { 'Error': 'Could not create the new cart' });
+              }
+            });
+          } else {
+            callback(400, { 'Error': 'This user already has a cart' });
+          }
+        });
+      } else {
+        callback(403, { "Error": "Missing required token in header, or token is invalid." });
+      }
+    });
+
+  }
+
+};
+
+handlers._cart.get = function (data, callback) {
+  var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+  _data.read('tokens', token, function (err, tokenData) {
+    if (!err && tokenData) {
+      var email = tokenData.email;
+
+      handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+        if (tokenIsValid) {
+          _data.read('cart', email, function (err, cartData) {
+            if (!err && cartData) {
+              callback(200, cartData);
+            } else {
+              callback(500, { "Error": "This user does not have a cart yet, please create it." });
+            }
+          });
+        } else {
+          callback(403, { "Error": "Missing required token in header, or token is invalid." });
+        }
+      });
+    } else {
+      callback(500, { "Error": "Token is invalid." });
+    }
+  });
+
+};
+
+handlers._cart.put = function (data, callback) {
+
+  var product = typeof (data.payload.product) == 'string' && data.payload.product.trim().length > 0 ? data.payload.product.trim() : false;
+  var quantity = typeof (data.payload.quantity) == 'number' && data.payload.quantity > 0 ? data.payload.quantity : 1;
+
+  if (product && quantity) {
+    _data.read('.', 'menu', function (err, menuData) {
+      if (!err && menuData) {
+        let [item] = menuData.filter((item) => item.name === product);
+
+        if (item) {
+          var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+          _data.read('tokens', token, function (err, tokenData) {
+            if (!err && tokenData) {
+              var email = tokenData.email;
+
+              handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+                if (tokenIsValid) {
+                  _data.read('cart', email, function (err, cartData) {
+                    if (!err && cartData) {
+
+                      var cartObject = cartData;
+
+                      cartObject.itens.push({ "id": helpers.createRandomString(5), "product": item.name, "price": item.price, quantity });
+                      cartObject.total += item.price * quantity;
+
+                      _data.update('cart', email, cartObject, function (err) {
+                        if (!err) {
+                          callback(200, cartObject);
+                        } else {
+                          callback(500, { "Error": "Could not update cart." });
+                        }
+                      });
+
+                    } else {
+                      callback(500, { "Error": "This user does not have a cart yet, please create it." });
+                    }
+                  });
+                } else {
+                  callback(403, { "Error": "Missing required token in header, or token is invalid." });
+                }
+              });
+            } else {
+              callback(500, { "Error": "Token is invalid." });
+            }
+          });
+        } else {
+          callback(400, { "Error": "This product does not exist." });
+        }
+      } else {
+        callback(500, { "Error": "Could not read the menu file." });
+      }
+    });
+  } else {
+    callback(400, { "Error": "No products provided" });
+  }
+};
+
+handlers._cart.delete = function (data, callback) {
+
+  var id = typeof (data.payload.id) == 'string' && data.payload.id.trim().length > 0 ? data.payload.id.trim() : false;
+  
+
+  if (id) {
+    var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+    _data.read('tokens', token, function (err, tokenData) {
+      if (!err && tokenData) {
+        var email = tokenData.email;
+
+        handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+          if (tokenIsValid) {
+            _data.read('cart', email, function (err, cartData) {
+              if (!err && cartData) {
+
+                var cartObject = cartData;
+                var [itemToDelete] = cartObject.itens.filter((item) => item.id === id);
+                
+                if (itemToDelete) {
+                  var quantity = typeof (data.payload.quantity) == 'number' && data.payload.quantity > 0 ? data.payload.quantity : itemToDelete.quantity;
+                  
+                  if (itemToDelete.quantity === quantity) {
+
+                    cartObject.itens = cartObject.itens.filter((item) => item.id !== id);
+                    cartObject.total -= itemToDelete.price * quantity;
+
+                    _data.update('cart', email, cartObject, function (err) {
+                      if (!err) {
+                        callback(200, cartObject);
+                      } else {
+                        callback(500, { "Error": "Could not update cart." });
+                      }
+                    });
+                  } else if (itemToDelete.quantity > quantity) {
+
+                    cartObject.itens = cartObject.itens.map((item) => {
+                      if (item.id === itemToDelete.id) {
+                        return { ...item, quantity: item.quantity - quantity };
+                      } else {
+                        return item;
+                      }
+                    });
+                    cartObject.total -= itemToDelete.price * quantity;
+
+                    _data.update('cart', email, cartObject, function (err) {
+                      if (!err) {
+                        callback(200, cartObject);
+                      } else {
+                        callback(500, { "Error": "Could not update cart." });
+                      }
+                    });
+                  } else {
+                    callback(400, { "Error": "Quantity is more than limit." });
+                  }
+                } else {
+                  callback(400, { "Error": "No product with the id that was provided" })
+                }
+
+              } else {
+                callback(500, { "Error": "Could not read the file" });
+              }
+            });
+          } else {
+            callback(403, { "Error": "Missing required token in header, or token is invalid." });
+          }
+        });
+      } else {
+        callback(500, { "Error": "Token is invalid." });
+      }
+    });
+  } else {
+    callback(400, { "Error": "Product id is missing." });
+  }
+};
+// Cart end
 
 module.exports = handlers;
