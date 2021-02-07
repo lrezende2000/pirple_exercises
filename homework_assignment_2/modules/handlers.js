@@ -511,7 +511,6 @@ handlers._cart.put = function (data, callback) {
 handlers._cart.delete = function (data, callback) {
 
   var id = typeof (data.payload.id) == 'string' && data.payload.id.trim().length > 0 ? data.payload.id.trim() : false;
-  
 
   if (id) {
     var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
@@ -527,10 +526,10 @@ handlers._cart.delete = function (data, callback) {
 
                 var cartObject = cartData;
                 var [itemToDelete] = cartObject.itens.filter((item) => item.id === id);
-                
+
                 if (itemToDelete) {
                   var quantity = typeof (data.payload.quantity) == 'number' && data.payload.quantity > 0 ? data.payload.quantity : itemToDelete.quantity;
-                  
+
                   if (itemToDelete.quantity === quantity) {
 
                     cartObject.itens = cartObject.itens.filter((item) => item.id !== id);
@@ -584,6 +583,175 @@ handlers._cart.delete = function (data, callback) {
     callback(400, { "Error": "Product id is missing." });
   }
 };
+
+handlers._cart.getCart = function (email, callback) {
+
+  _data.read("cart", email, function (err, cartData) {
+    if (!err) {
+      callback(cartData.total, cartData.itens);
+    } else {
+      callback(false);
+    }
+  });
+
+};
 // Cart end
+
+// Payment
+handlers.pay = function (data, callback) {
+
+  var acceptableMethods = ['post', 'get', 'put'];
+  if (acceptableMethods.indexOf(data.method) > -1) {
+    handlers._pay[data.method](data, callback);
+  } else {
+    callback(405);
+  }
+
+};
+
+handlers._pay = {};
+
+handlers._pay.post = function (data, callback) {
+
+  var email = typeof (data.payload.email) == 'string' && emailRegex.test(data.payload.email.trim()) ? data.payload.email.trim() : false;
+
+  if (email) {
+
+    var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+    handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+      if (tokenIsValid) {
+        _data.read('payments', email, function (err, _) {
+          if (err) {
+            var paymentObject = {
+              email,
+              "payments": []
+            };
+
+            _data.create('payments', email, paymentObject, function (err) {
+              if (!err) {
+                callback(200);
+              } else {
+                callback(500, { 'Error': 'Could not create the new payment' });
+              }
+            });
+          } else {
+            callback(400, { 'Error': 'This user already has a payment list' });
+          }
+        });
+      } else {
+        callback(403, { "Error": "Missing required token in header, or token is invalid." });
+      }
+    });
+
+  }
+
+};
+
+handlers._pay.get = function (data, callback) {
+  var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+  var payment_id = typeof (data.queryStringObject.payment_id) == 'string' && data.queryStringObject.payment_id.trim().length > 0 ? data.queryStringObject.payment_id.trim() : false;
+
+  _data.read('tokens', token, function (err, tokenData) {
+    if (!err && tokenData) {
+      var email = tokenData.email;
+
+      handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+        if (tokenIsValid) {
+          _data.read('payments', email, function (err, paymentData) {
+            if (!err && paymentData) {
+              if (payment_id) {
+                paymentData.payments = paymentData.payments.filter(payment => payment.id === payment_id);
+
+                if (paymentData.payments.length > 0) {
+                  callback(200, paymentData);
+                } else {
+                  callback(200, { "Error": "No results found." });
+                }
+              } else {
+                callback(200, paymentData);
+              }
+            } else {
+              callback(500, { "Error": "This user does not have a payment list yet, please create it." });
+            }
+          });
+        } else {
+          callback(403, { "Error": "Missing required token in header, or token is invalid." });
+        }
+      });
+    } else {
+      callback(500, { "Error": "Token is invalid." });
+    }
+  });
+
+};
+
+handlers._pay.put = function (data, callback) {
+
+  var email = typeof (data.payload.email) == 'string' && emailRegex.test(data.payload.email.trim()) ? data.payload.email.trim() : false;
+  handlers._cart.getCart(email, function (amount, items) {
+    if (amount > 0 && items.length > 0 && email) {
+      var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
+
+      _data.read('tokens', token, function (err, tokenData) {
+        if (!err && tokenData) {
+
+          handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
+            if (tokenIsValid) {
+              _data.read('payments', email, function (err, paymentData) {
+                if (!err && paymentData) {
+
+                  var paymentObject = paymentData;
+
+                  helpers.paymentIntent(amount, "usd", 'pm_card_visa', function (status, response) {
+                    if (status === 200) {
+                      const { id } = response;
+                      paymentObject.payments.push({ id, items, amount, paymentMethod: 'pm_card_visa' });
+
+                      _data.update('payments', email, paymentObject, function (err) {
+                        if (!err) {
+                          var cartObject = {
+                            email,
+                            "itens": [],
+                            "total": 0
+                          };
+
+                          _data.update('cart', email, cartObject, function (err) {
+                            if (!err) {
+                              callback(200, {
+                                id,
+                                "message": "Payment success"
+                              });
+                            } else {
+                              callback(500, { "Error": "Could not update payment list." });
+                            }
+                          });
+                        } else {
+                          callback(500, { "Error": "Could not update payment list." });
+                        }
+                      });
+                    } else {
+                      callback(500, { "Error": "Could not realize your payment" })
+                    }
+                  });
+
+                } else {
+                  callback(500, { "Error": "This user does not have a payment list yet, please create it." });
+                }
+              });
+            } else {
+              callback(403, { "Error": "Missing required token in header, or token is invalid." });
+            }
+          });
+        } else {
+          callback(500, { "Error": "Could not read the payment file." });
+        }
+      });
+    } else {
+      callback(400, { "Error": "Your cart does not have items" });
+    }
+  });
+};
+// Payment end
 
 module.exports = handlers;

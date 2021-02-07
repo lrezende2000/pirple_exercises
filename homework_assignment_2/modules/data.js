@@ -49,7 +49,7 @@ lib.update = function (dir, file, data, callback) {
 
   fs.open(`${lib.baseDir}${dir}/${file}.json`, 'r+', function (err, fileContent) {
     if (!err && fileContent) {
-      
+
       var stringData = JSON.stringify(data);
 
       fs.ftruncate(fileContent, function (err) {

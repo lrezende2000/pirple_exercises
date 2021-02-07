@@ -63,7 +63,8 @@ server.router = {
   'users': handlers.users,
   'tokens': handlers.tokens,
   'menu': handlers.menu,
-  'cart': handlers.cart
+  'cart': handlers.cart,
+  'pay': handlers.pay,
 };
 
 server.init = function () {
