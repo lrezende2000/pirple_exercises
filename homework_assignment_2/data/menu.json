@@ -1,1 +1,18 @@
-[{"name": "Hamburger","price": 11},{"name": "Donuts","price": 7},{"name": "Hot Dog","price": 5},{"name": "Onion Rings", "price": 8}]
+[
+  {
+    "name": "Cheese",
+    "price": 16
+  },
+  {
+    "name": "Calabreza",
+    "price": 20
+  },
+  {
+    "name": "Bacon",
+    "price": 25
+  },
+  {
+    "name": "American",
+    "price": 15
+  }
+]

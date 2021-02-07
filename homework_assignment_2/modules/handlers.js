@@ -342,31 +342,14 @@ handlers.menu = function (data, callback) {
 
 handlers._menu = {};
 
-handlers._menu.get = function (data, callback) {
-  var email = typeof (data.queryStringObject.email) == 'string' && emailRegex.test(data.queryStringObject.email.trim()) ? data.queryStringObject.email.trim() : false;
-
-  if (email) {
-
-    var token = typeof (data.headers.token) == 'string' ? data.headers.token : false;
-
-    handlers._tokens.verifyToken(token, email, function (tokenIsValid) {
-      if (tokenIsValid) {
-        _data.read('.', 'menu', function (err, fileContent) {
-          if (!err && fileContent) {
-            callback(200, fileContent);
-          } else {
-            callback(400);
-          }
-        });
-
-      } else {
-        callback(403, { "Error": "Missing required token in header, or token is invalid." });
-      }
-    });
-
-  } else {
-    callback(400, { 'Error': 'Missing required field' });
-  }
+handlers._menu.get = function (_, callback) {
+  _data.read('.', 'menu', function (err, fileContent) {
+    if (!err && fileContent) {
+      callback(200, fileContent);
+    } else {
+      callback(400);
+    }
+  });
 };
 // Menu end
 
